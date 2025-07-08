@@ -12,6 +12,12 @@
     "**/*.ts",
     "**/*.tsx",
     ".expo/types/**/*.ts",
-    "expo-env.d.ts"
-, "src/components/PrimaryButton.tsx", "src/components/FormInput.tsx"  ]
+    "expo-env.d.ts",
+    "src/components/PrimaryButton.tsx",
+    "src/components/FormInput.tsx",
+    "src/constants/colors.ts",
+    "src/themes/index.js",
+    "src/themes/spacing.ts",
+    "src/services/authService.ts"
+  ]
 }

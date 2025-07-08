@@ -1,8 +1,7 @@
 import React, { createContext, useState, useContext, useEffect, ReactNode } from 'react'; // Import ReactNode type
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { registerUser, loginUser } from '../apiService/authService';
-import { View, Text } from 'react-native'; // Import View and Text for loading view
-import { colors } from '../themes/colors'; // Import colors for loading view background/text
+import { registerUser, loginUser } from '../services/authService';
+// import LoadingSpinner from '../components/LoadingSpinner';
 
 // --- Define Types ---
 
@@ -11,6 +10,7 @@ interface UserData {
   id: string;
   email: string;
   username?: string;
+  points?: number; 
 }
 
 // Type for the value provided by the AuthContext
@@ -157,14 +157,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     // Provide the typed value
     <AuthContext.Provider value={value}>
       {/* Show a loading indicator while isLoading is true */}
-      {isLoading ? (
-        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.background }}>
-          <Text style={{ color: colors.text }}>Loading...</Text>
-        </View>
-      ) : (
-        // Render the children (your app navigator) when loading is complete
-        children
-      )}
+        {children}
     </AuthContext.Provider>
   );
 };

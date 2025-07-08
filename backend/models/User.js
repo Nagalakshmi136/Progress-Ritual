@@ -23,6 +23,10 @@ const userSchema = new mongoose.Schema({
         required: false,
         trim: true
     },
+    points:{
+        type: Number,
+        default: 0
+    },
     createdAt: {
         type: Date,
         default: Date.now // Automatically add creation timestamp

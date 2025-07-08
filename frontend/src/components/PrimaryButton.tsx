@@ -46,7 +46,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     marginBottom: spacing.md,
     elevation: 3,
-    shadowColor: colors.glow,
+    shadowColor: colors.shadow,
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.3,
     shadowRadius: 4,

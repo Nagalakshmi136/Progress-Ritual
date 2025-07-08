@@ -5,6 +5,8 @@ const coffeeTheme = {
   border: "#E5D3B7",
   white: "#FFFFFF",
   textLight: "#9A8478",
+  error:'#E74C3C',
+  success:'#2ECC71',
   card: "#FFFFFF",
   shadow: "#000000",
 };
@@ -16,6 +18,8 @@ const forestTheme = {
   border: "#C8E6C9",
   white: "#FFFFFF",
   textLight: "#66BB6A",
+  error:'#E74C3C',
+  success:'#2ECC71',
   card: "#FFFFFF",
   shadow: "#000000",
 };
@@ -27,6 +31,8 @@ const purpleTheme = {
   border: "#D1C4E9",
   white: "#FFFFFF",
   textLight: "#BA68C8",
+  error:'#E74C3C',
+  success:'#2ECC71',
   card: "#FFFFFF",
   shadow: "#000000",
 };
@@ -38,6 +44,8 @@ const oceanTheme = {
   border: "#B3E5FC",
   white: "#FFFFFF",
   textLight: "#4FC3F7",
+  error:'#E74C3C',
+  success:'#2ECC71',
   card: "#FFFFFF",
   shadow: "#000000",
 };
@@ -49,6 +57,8 @@ const sunsetTheme = {
   border: "#FFD5CC",
   white: "#FFFFFF",
   textLight: "#FFA494",
+  error:'#E74C3C',
+  success:'#2ECC71',
   card: "#FFFFFF",
   shadow: "#000000",
 };
@@ -60,6 +70,8 @@ const mintTheme = {
   border: "#B2E8E8",
   white: "#FFFFFF",
   textLight: "#66D9D9",
+  error:'#E74C3C',
+  success:'#2ECC71',
   card: "#FFFFFF",
   shadow: "#000000",
 };
@@ -71,6 +83,8 @@ const midnightTheme = {
   border: "#D5D8DC",
   white: "#FFFFFF",
   textLight: "#7F8C8D",
+  error:'#E74C3C',
+  success:'#2ECC71',
   card: "#FFFFFF",
   shadow: "#000000",
 };
@@ -82,6 +96,8 @@ const roseGoldTheme = {
   border: "#F2D9D5",
   white: "#FFFFFF",
   textLight: "#C9A9A6",
+  error:'#E74C3C',
+  success:'#2ECC71',
   card: "#FFFFFF",
   shadow: "#000000",
 };
@@ -98,4 +114,4 @@ export const THEMES = {
 };
 
 // 👇 change this to switch theme
-export const colors = THEMES.coffee;
+export const COLORS = THEMES.forest;

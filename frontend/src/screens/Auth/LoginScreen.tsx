@@ -1,166 +1,159 @@
-import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
-import { StackNavigationProp } from '@react-navigation/stack'; // Import navigation type
+// import { useRouter } from "expo-router";
+import React, { useState } from "react";
+import {
+    View,
+    Text,
+    TextInput,
+    TouchableOpacity,
+} from "react-native";
+import { Ionicons } from "@expo/vector-icons";
+import { KeyboardAwareScrollView } from "react-native-keyboard-aware-scroll-view";
+// import { Image } from "expo-image";
 
-import FormInput from '../../components/FormInput';
-import PrimaryButton from '../../components/PrimaryButton';
-import { useAuth } from '../../context/AuthContext';
-import { spacing } from '../../themes/spacing';
-import { colors } from '../../themes/colors';
-import { typography } from '../../themes/typography'; // Import typography
+import { authStyles } from "../../assets/styles/auth.styles";
+import { COLORS } from "../../constants/colors";
+import { useAuth } from "@/src/context/AuthContext";
 
-// Formik and Yup types
-import { Formik, FormikHelpers } from 'formik';
-import * as Yup from 'yup';
+const LoginScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
+    // const router = useRouter();
 
-// --- Define Types ---
-// Type for the navigation prop for this screen
-// Replace 'any' with your actual RootStackParamList type if needed
-type LoginScreenNavigationProp = StackNavigationProp<any, 'Login'>;
+    const { login } = useAuth();
 
-// Type for the form values
-interface LoginFormValues {
-  email: string;
-  password: string;
-}
+    const [email, setEmail] = useState("");
+    const [password, setPassword] = useState("");
+    const [showPassword, setShowPassword] = useState(false);
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState("");
+    // const [passwordError, setPasswordError] = useState("");
+    // const [emailError, seteEmailError] = useState("");
 
-// --- Validation Schema ---
-const LoginSchema = Yup.object().shape({
-  email: Yup.string().email('Invalid email address').required('Email is required'),
-  password: Yup.string().min(6, 'Password must be at least 6 characters').required('Password is required'),
-});
+    const handleLoginIn = async () => {
+        if (!email || !password) {
+            setError("Please fill in all fields");
+            return;
+        }
+        if (!email.includes("@")) {
+            setError("Please enter a valid email address");
+            return;
+        }
+        if (password.length < 6) {
+            setError("Password must be at least 6 characters long");
+            return;
+        }
+        setError("");
+        setLoading(true);
+        try {
+            await login(email, password);
+            // Navigate to the home screen after successful login
 
-// Use React.FC for the component and provide the navigation prop type
-const LoginScreen: React.FC<{ navigation: LoginScreenNavigationProp }> = ({ navigation }) => {
-  // Access your auth context functions and state (typed by useAuth hook)
-  const { login, isLoading } = useAuth();
+        } catch (err) {
+            console.error("Login error:", err);
+            setError("Login failed. Please check your credentials.");
+        } finally {
+            setLoading(false);
+        }
+    };
 
-  // Function to handle form submission (with types from FormikHelpers)
-  const handleLoginSubmit = async (
-    values: LoginFormValues,
-    { setSubmitting, setStatus }: FormikHelpers<LoginFormValues>
-  ) => {
-    try {
-      await login(values.email, values.password);
-      // Login successful, AuthContext handles state update and navigation
-    } catch (error: any) {
-      console.error("Login screen caught error:", error.message);
-      // Display a generic error message via Formik status
-      setStatus(error.message || 'An unexpected error occurred.');
-    } finally {
-      setSubmitting(false);
-    }
-  };
+    return (
+        <KeyboardAwareScrollView
+            style={authStyles.keyboardView}
+            contentContainerStyle={{ flexGrow: 1 }}
+            enableOnAndroid
+            enableAutomaticScroll
 
-  return (
-    <LinearGradient
-      colors={[colors.gradientStart, colors.gradientEnd]}
-      style={styles.gradientBackground}
-    >
-      <ScrollView contentContainerStyle={styles.container}>
-        <Text style={styles.title}>Welcome Back</Text>
-        <Text style={styles.subtitle}>Log in to continue your ritual of progress</Text>
-
-        {/* Formik Wrapper - Specify the type of form values */}
-        <Formik<LoginFormValues>
-          initialValues={{ email: '', password: '' }}
-          validationSchema={LoginSchema}
-          onSubmit={handleLoginSubmit}
         >
-          {/* Formik render prop function (types inferred by Formik<LoginFormValues>) */}
-          {({ handleChange, handleBlur, handleSubmit, values, errors, touched, isSubmitting, isValid, status }) => (
-            <View style={styles.form}>
-              <FormInput
-                label="Email"
-                value={values.email}
-                onChangeText={handleChange('email')}
-                onBlur={handleBlur('email')}
-                keyboardType="email-address"
-                autoCapitalize="none"
-                // Ensure error prop is string or undefined/null
-                error={touched.email ? errors.email : undefined}
-              />
+            <View style={authStyles.container}>
 
-              <FormInput
-                label="Password"
-                value={values.password}
-                onChangeText={handleChange('password')}
-                onBlur={handleBlur('password')}
-                secureTextEntry
-                // Ensure error prop is string or undefined/null
-                error={touched.password ? errors.password : undefined}
-              />
+                {/* <View style={authStyles.imageContainer}>
+                        <Image
+                            source={require("../../assets/images/i1.png")}
+                            style={authStyles.image}
+                            contentFit="contain"
+                        />
+                    </View> */}
 
-              {/* General Error Message (e.g., from API) */}
-              {status && <Text style={styles.generalErrorText}>{status}</Text>}
+                <Text style={authStyles.title}>Welcome Back</Text>
+                <Text style={authStyles.subtitle}>
+                    Log in to continue your ritual of progress </Text>
+                {/* FORM CONTAINER */}
+                <View style={authStyles.formContainer}>
+                    {
+                        error ? (
+                            <View style={authStyles.errorBox}>
+                                <Ionicons
+                                    name="alert-circle-outline"
+                                    size={20}
+                                    color={COLORS.error}
+                                />
+                                <Text style={authStyles.errorText}>{error}</Text>
+                                <TouchableOpacity onPress={() => setError("")}>
+                                    <Ionicons
+                                        name="close"
+                                        size={20}
+                                        color={COLORS.textLight}
+                                    />
+                                </TouchableOpacity>
+                            </View>
+                        ) : null
+                    }
+                    {/* Email Input */}
+                    <View style={authStyles.inputContainer}>
+                        <TextInput
+                            style={[authStyles.textInput, error && authStyles.errorInput]}
+                            placeholder="Enter email"
+                            placeholderTextColor={COLORS.textLight}
+                            value={email}
+                            onChangeText={setEmail}
+                            keyboardType="email-address"
+                            autoCapitalize="none"
+                        />
+                    </View>
 
+                    {/* PASSWORD INPUT */}
+                    <View style={authStyles.inputContainer}>
+                        <TextInput
+                            style={[authStyles.textInput, error && authStyles.errorInput]}
+                            placeholder="Enter password"
+                            placeholderTextColor={COLORS.textLight}
+                            value={password}
+                            onChangeText={setPassword}
+                            secureTextEntry={!showPassword}
+                            autoCapitalize="none"
+                        />
+                        <TouchableOpacity
+                            style={authStyles.eyeButton}
+                            onPress={() => setShowPassword(!showPassword)}
+                        >
+                            <Ionicons
+                                name={showPassword ? "eye-outline" : "eye-off-outline"}
+                                size={20}
+                                color={COLORS.textLight}
+                            />
+                        </TouchableOpacity>
+                    </View>
 
-              <PrimaryButton
-                title="Log In"
-                onPress={() => handleSubmit()}
-                loading={isSubmitting || isLoading}
-                disabled={!isValid || isSubmitting || isLoading}
-                buttonStyle={styles.button} // Use buttonStyle prop
-              >Log In</PrimaryButton>
+                    <TouchableOpacity
+                        style={[authStyles.authButton, loading && authStyles.buttonDisabled]}
+                        onPress={handleLoginIn}
+                        disabled={loading}
+                        activeOpacity={0.8}
+                    >
+                        <Text style={authStyles.buttonText}>{loading ? "Signing In..." : "Sign In"}</Text>
+                    </TouchableOpacity>
 
-              {/* Link to Register Screen */}
-              <TouchableOpacity onPress={() => navigation.navigate('Register')}>
-                <Text style={styles.linkText}>Don&apos;t have an account? <Text style={styles.linkBold}>Begin Ritual</Text></Text>
-              </TouchableOpacity>
-
-              {/* Optional: Forgot Password Link */}
+                    {/* Sign Up Link */}
+                    <TouchableOpacity
+                        style={authStyles.linkContainer}
+                        onPress={() => navigation.navigate("Register")}
+                    >
+                        <Text style={authStyles.linkText}>
+                            Don&apos;t have an account? <Text style={authStyles.link}>Sign up</Text>
+                        </Text>
+                    </TouchableOpacity>
+                </View>
             </View>
-          )}
-        </Formik>
 
-      </ScrollView>
-    </LinearGradient>
-  );
+        </KeyboardAwareScrollView>
+    );
 };
-
-const styles = StyleSheet.create({
-  gradientBackground: {
-    flex: 1,
-  },
-  container: {
-    flexGrow: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: spacing.lg,
-  },
-  title: {
-    ...typography.h1,
-    marginBottom: spacing.sm,
-    color: colors.secondary,
-  },
-  subtitle: {
-    ...typography.body,
-    marginBottom: spacing.xl,
-    color: colors.textSecondary,
-    textAlign: 'center',
-  },
-  form: {
-    width: '100%',
-    maxWidth: 400,
-  },
-  button: {
-    marginTop: spacing.md,
-  },
-  linkText: {
-    marginTop: spacing.md,
-    color: colors.textSecondary,
-    textAlign: 'center',
-  },
-  linkBold: {
-    fontWeight: 'bold',
-    color: colors.secondary ,
-  },
-  generalErrorText: {
-    color: colors.error,
-    textAlign: 'center',
-    marginBottom: spacing.md,
-  },
-});
-
 export default LoginScreen;
