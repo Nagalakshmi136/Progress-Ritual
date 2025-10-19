@@ -13,7 +13,7 @@ const generateToken = (id) => {
   // Sign the token with the user's ID and your secret key
   // Set an expiration time (e.g., '30d' for 30 days, or '1h' for 1 hour)
   return jwt.sign({ id }, jwtSecret, {
-    expiresIn: '30d', // Token expires in 30 days
+    expiresIn: '1d', // Token expires in 30 days
   });
 };
 

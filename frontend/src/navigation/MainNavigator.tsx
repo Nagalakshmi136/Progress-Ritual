@@ -6,6 +6,7 @@ import { useAuth } from "../context/AuthContext";
 import { COLORS } from "../constants/colors";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import { TouchableOpacity, View } from "react-native";
+import AddTaskScreen from "../screens/App/AddTaskScreen";
 // import TasksScreen from "../screens/App/TasksScreen";
 interface CustomTabBarButtonProps {
   children: React.ReactNode;
@@ -73,7 +74,7 @@ export default function MainNavigator() {
         title: "Explore",
         tabBarIcon: ({ color, size, focused }) => <Ionicons name={focused ? "compass" : "compass-outline"} size={size} color={color} />,
       }} />
-      <Tab.Screen name="AddTask" component={HomeScreen} options={{
+      <Tab.Screen name="AddTaskScreen" component={AddTaskScreen} options={{
         tabBarIcon: () => <Ionicons name={"add"} size={30} color={COLORS.white} />,
         tabBarButton: (props) => (
           <CustomTabBarButton {...props} />

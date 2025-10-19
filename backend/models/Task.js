@@ -1,99 +1,110 @@
 const mongoose = require('mongoose');
 
-// Define the schema for a Task document
+// Sub-schema for task lifecycle events
+const eventLogSchema = new mongoose.Schema({
+    type: {
+        type: String,
+        required: true,
+        enum: [
+            'created',
+            'completed_on_time',
+            'completed_with_extension',
+            'backlogged',
+            'reactivated',
+            'delay_increment',
+            'delay_deadline',
+            'delay_stopwatch_start'
+        ]
+    },
+    timestamp: { type: Date, default: Date.now },
+    details: { type: mongoose.Schema.Types.Mixed }
+}, { _id: false });
+
 const taskSchema = new mongoose.Schema({
-    user: {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: 'User',
-        required: true
+    user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true, index: true },
+    title: { type: String, required: true, trim: true },
+    description: { type: String, trim: true },
+
+    // --- Scheduling ---
+    scheduledDate: {
+        type: Date,
+        required: true,
+        set: v => new Date(v).setUTCHours(0, 0, 0, 0),
+        index: true
     },
-    name: {
+    startTime: {
         type: String,
-        required: [true, 'Task name is required'],
-        trim: true
+        match: [/^([01]\d|2[0-3]):([0-5]\d)$/, 'Use HH:mm format']
     },
-    description: {
+    endTime: {
         type: String,
-        required: false,
-        trim: true
+        match: [/^([01]\d|2[0-3]):([0-5]\d)$/, 'Use HH:mm format']
     },
+
+    // --- Priority & Status ---
     priority: {
         type: String,
-        required: false,
+        required: true,
         enum: ['High', 'Medium', 'Low'],
         default: 'Medium'
     },
-    startTime: { // Planned start time/date
-        type: Date,
-        required: false
-    },
-    endTime: { // Planned end time/date (deadline)
-        type: Date,
-        required: false
-    },
-    status: { // Use a status field: active, completed, backlog
+    status: {
         type: String,
         enum: ['active', 'completed', 'backlog'],
         default: 'active',
-        required: true
-    },
-    completedAt: { // Timestamp when status was changed to 'completed'
-        type: Date,
-        required: false
-    },
-    motivationText: {
-        type: String,
-        required: false,
-        trim: true
-    },
-    rewardInfo: { // What the reward *is* (text description or type)
-        type: String,
-        required: false,
-        trim: true
-    },
-    rewardUnlocked: { // Whether the reward can be revealed (based on completion logic)
-        type: Boolean,
-        default: false
-    },
-    repeatRule: { // How the task repeats
-        type: String,
-        required: false,
-        enum: ['daily', 'weekly', 'monthly', 'none'], // Simple rules
-        default: 'none'
-    },
-    voicePreference: { // Add voice preference as requested in roadmap
-        type: Boolean, // Example: true for voice, false for regular notification
-        required: false,
-        default: false
+        required: true,
+        index: true
     },
 
-    // Add other fields here later (e.g., time spent, consistency counters)
-
-    createdAt: {
-        type: Date,
-        default: Date.now
+    // --- Reminders & Motivation ---
+    reminder: {
+        timeBefore: { type: Number },
+        type: { type: String, enum: ['notification', 'voice'], default: 'notification' }
     },
-    updatedAt: {
-        type: Date,
-        default: Date.now
+    motivationText: { type: String, trim: true },
+
+    // --- Rewards ---
+    rewardInfo: { type: String, trim: true },
+    rewardUnlocked: { type: Boolean, default: false },
+    basePoints: { type: Number, required: true },
+    earnedPoints: { type: Number, default: 0 },
+
+    // --- Analytics ---
+    completedAt: { type: Date },
+    extensionCount: { type: Number, default: 0 },
+    streak: { type: Number, default: 0 },
+
+    // NEW: Track delays
+    totalDelayMs: { type: Number, default: 0 },
+
+    // NEW: Active stopwatch session
+    delaySessionStart: { type: Date },
+
+    // Event logs
+    eventLog: [eventLogSchema],
+
+}, { timestamps: true });
+
+// ─── Auto Set Points ──────────────────────────────────────────
+taskSchema.pre('save', function (next) {
+    if (this.isModified('priority') || this.isNew) {
+        const priorityPoints = { High: 100, Medium: 50, Low: 25 };
+        this.basePoints = priorityPoints[this.priority] || 50;
+        if (this.status === 'active') this.earnedPoints = 0;
     }
-}, {
-    timestamps: true // Mongoose will automatically manage createdAt and updatedAt
+    next();
 });
-// Removed manual createdAt/updatedAt fields as timestamps option is cleaner
 
+// ─── Auto Create Event ───────────────────────────────────────
+taskSchema.pre('save', function (next) {
+    if (this.isNew) {
+        this.eventLog.push({ type: 'created', timestamp: new Date() });
+    }
+    next();
+});
 
-// --- Add Indexes for Performance ---
-// Index on the user field to quickly find tasks for a specific user
-taskSchema.index({ user: 1 });
-// Index on user and status for querying tasks by status quickly
-taskSchema.index({ user: 1, status: 1 });
-// Index on user, status, and endTime/startTime if you often query tasks by time ranges for a user
-taskSchema.index({ user: 1, status: 1, endTime: 1 });
+// ─── Index for Performance ───────────────────────────────────
+taskSchema.index({ user: 1, scheduledDate: 1, status: 1 });
 
-
-// Create the Mongoose model
 const Task = mongoose.model('Task', taskSchema);
-
-// Export the model
 module.exports = Task;

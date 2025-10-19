@@ -33,28 +33,28 @@ const errorHandler = (err, req, res, next) => {
   // --- Handle Specific Mongoose Errors (Examples) ---
   // Mongoose bad ObjectId (e.g., /api/tasks/12345 - invalid ID format)
   if (err.name === 'CastError') {
-      statusCode = 400; // Bad Request
-      message = `Resource not found with id of ${err.value}`; // Provide helpful message
-      err = new BadRequestError(message); // Create a new operational error
+    statusCode = 400; // Bad Request
+    message = `Resource not found with id of ${err.value}`; // Provide helpful message
+    err = new BadRequestError(message); // Create a new operational error
   }
 
   // Mongoose duplicate key error (e.g., registering with an email that already exists)
   // This is also handled by schema validation, but catching the raw DB error is good too
   if (err.code === 11000) { // MongoDB duplicate key error code
-      const value = Object.values(err.keyValue)[0];
-      statusCode = 400; // Bad Request
-      message = `Duplicate field value: "${value}". Please use a different value.`;
-      err = new BadRequestError(message); // Create a new operational error
+    const value = Object.values(err.keyValue)[0];
+    statusCode = 400; // Bad Request
+    message = `Duplicate field value: "${value}". Please use a different value.`;
+    err = new BadRequestError(message); // Create a new operational error
   }
 
   // Mongoose validation errors (e.g., missing required field, invalid format)
-   if (err.name === 'ValidationError') {
-       // err.errors object contains details about each validation failure
-       const messages = Object.values(err.errors).map(val => val.message);
-       statusCode = 400; // Bad Request
-       message = messages.join(', '); // Join all validation error messages
-       err = new BadRequestError(message); // Create a new operational error
-   }
+  if (err.name === 'ValidationError') {
+    // err.errors object contains details about each validation failure
+    const messages = Object.values(err.errors).map(val => val.message);
+    statusCode = 400; // Bad Request
+    message = messages.join(', '); // Join all validation error messages
+    err = new BadRequestError(message); // Create a new operational error
+  }
 
 
   // --- Send Response to Client ---
@@ -67,8 +67,8 @@ const errorHandler = (err, req, res, next) => {
   res.status(statusCode).json({
     status: err.status || 'error', // Use error's status ('fail' or 'error'), default to 'error'
     message: isOperational || process.env.NODE_ENV === 'development'
-             ? message // Send specific message for operational errors or in development
-             : 'Internal Server Error', // Send generic message for non-operational errors in production
+      ? message // Send specific message for operational errors or in development
+      : 'Internal Server Error', // Send generic message for non-operational errors in production
     // Optional: Send stack trace only in development for debugging
     ...(process.env.NODE_ENV === 'development' && { stack: err.stack }),
   });

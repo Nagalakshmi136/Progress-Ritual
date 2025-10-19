@@ -1,12 +1,13 @@
 import { View, TouchableOpacity, Text, StyleSheet } from "react-native";
 import { COLORS } from "../constants/colors";
 
+type Tab = 'Active' | 'Completed' | 'Backlog';
 interface TabSwitcherProps {
     selectedTab: string;
-    onTabChange: (tab: string) => void;
+    onTabChange: (tab: Tab) => void;
 }
 const TabSwitcher: React.FC<TabSwitcherProps> = ({ selectedTab, onTabChange }) => {
-    const Tabs = ["Active", "Completed", "Backlog"];
+    const Tabs: Tab[] = ["Active", "Completed", "Backlog"];
     return (
         <View style={styles.tabContainer}>
             {Tabs.map((tab) => (

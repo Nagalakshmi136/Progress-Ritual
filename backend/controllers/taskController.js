@@ -1,269 +1,294 @@
+const mongoose = require('mongoose');
 const Task = require('../models/Task');
-const { NotFoundError, BadRequestError, ForbiddenError } = require('../utils/apiError');
 const asyncHandler = require('express-async-handler');
+const { NotFoundError, BadRequestError } = require('../utils/apiError');
 
+// ─── Helpers ────────────────────────────────────────────────
 
-// @desc    Get all tasks for the logged-in user, with optional status filter
-// @route   GET /api/tasks
-// @access  Private
-const getTasks = asyncHandler(async (req, res) => {
-    // Get the optional status filter from query parameters (e.g., /api/tasks?status=completed)
-    const { status } = req.query; // status will be a string or undefined
+const combineDateAndTime = (date, timeStr) => {
+    if (!date || !timeStr) return null;
+    const [h, m] = timeStr.split(':').map(Number);
+    const d = new Date(date);
+    d.setHours(h, m, 0, 0);
+    return d;
+};
 
-    // Build the query object: always filter by user, optionally filter by status
-    const query = { user: req.user };
-    if (status) {
-        // Validate that the provided status is one of the allowed enum values
-        const allowedStatuses = ['active', 'completed', 'backlog'];
-        if (!allowedStatuses.includes(status)) {
-            throw new BadRequestError(`Invalid status filter: "${status}". Allowed values are ${allowedStatuses.join(', ')}.`);
-        }
-        query.status = status;
-    }
+const calculatePoints = (task, completedAt) => {
+    const deadline = combineDateAndTime(task.scheduledDate, task.endTime);
+    if (!deadline) return task.basePoints;
+    const lateMs = completedAt - deadline;
+    if (lateMs <= 5 * 60e3) return task.basePoints; // 5-min grace
+    const penal = Math.min(0.9, Math.floor(lateMs / (30 * 60e3)) * 0.1);
+    return Math.max(0, Math.round(task.basePoints * (1 - penal)));
+};
 
-    // Find tasks based on the query. Sort by createdAt descending (newest first).
-    // You might want a different sort order, e.g., by startTime for active tasks.
-    const tasks = await Task.find(query).sort('-createdAt');
+// ─── Controllers ───────────────────────────────────────────
 
-    res.status(200).json({
-        tasks,
-        count: tasks.length,
-        message: 'Tasks fetched successfully.'
-    });
-});
+// 1️⃣ Create Task
 
-// @desc    Get a single task by ID for the logged-in user
-// @route   GET /api/tasks/:id
-// @access  Private
-const getTaskById = asyncHandler(async (req, res) => {
-    const taskId = req.params.id;
-
-    // Find the task by ID AND ensure it belongs to the authenticated user
-    const task = await Task.findOne({ _id: taskId, user: req.user });
-
-    if (!task) {
-        // Use NotFoundError if the specific task ID for this user doesn't exist
-        throw new NotFoundError(`Task not found with id ${taskId}`);
-    }
-
-    res.status(200).json({
-        task,
-        message: 'Task fetched successfully.'
-    });
-});
-
-// @desc    Create a new task for the logged-in user
-// @route   POST /api/tasks
-// @access  Private
-const createTask = asyncHandler(async (req, res) => {
-    // Destructure task fields from the request body
-    // Only allow specific fields to be set during creation
-    const { name, description, priority, startTime, endTime, motivationText, rewardInfo, repeatRule, voicePreference } = req.body;
-
-    // --- Input Validation (Basic) ---
-    if (!name) {
-        throw new BadRequestError('Task name is required.');
-    }
-    // Mongoose schema validation will handle other types/formats and enum values
-
-    // Create a new Task instance
-    const newTask = new Task({
-        user: req.user, // Assign the task to the authenticated user
-        name,
+exports.createTask = asyncHandler(async (req, res) => {
+    const {
+        title,
         description,
         priority,
+        scheduledDate,
         startTime,
         endTime,
         motivationText,
         rewardInfo,
         repeatRule,
-        voicePreference,
-        status: 'active', // New tasks are active by default
-        // completedAt is not set on creation
-        // rewardUnlocked defaults to false
+        voicePreference
+    } = req.body;
+
+    // ✅ 1. Validate required fields
+    if (!title || !scheduledDate || !startTime || !endTime || !priority) {
+        return res.status(400).json({
+            message: 'title, scheduledDate, startTime, endTime & priority are required.'
+        });
+    }
+
+    // ✅ 2. Automatically set user from logged-in account
+    if (!req.user || !req.user._id) {
+        return res.status(401).json({ message: 'User authentication required' });
+    }
+
+    // ✅ 3. Provide default basePoints if not sent
+    const basePoints = req.body.basePoints || 10;
+
+    // ✅ 4. Create task
+    const task = await Task.create({
+        title: title.trim(),
+        description: description?.trim() || '',
+        priority,
+        scheduledDate,
+        startTime,
+        endTime,
+        motivationText: motivationText || '',
+        rewardInfo: rewardInfo || '',
+        repeatRule: repeatRule || 'none',
+        voicePreference: voicePreference || false,
+        basePoints,
+        user: req.user._id,
+        status: 'active', // default status
     });
 
-    // Save the new task to the database
-    const createdTask = await newTask.save();
-
-    res.status(201).json({
-        task: createdTask,
-        message: 'Task created successfully.'
-    });
+    return res.status(201).json({ task });
 });
 
-// @desc    Update a task by ID for the logged-in user
-// @route   PUT /api/tasks/:id
-// @access  Private
-const updateTask = asyncHandler(async (req, res) => {
-    const taskId = req.params.id;
-    // Get update fields from request body. BE CAREFUL which fields you allow updates for.
-    // For instance, user ID should NOT be updatable this way.
-    const { name, description, priority, startTime, endTime, motivationText, rewardInfo, repeatRule, voicePreference } = req.body;
-    // status update should be handled by specific endpoints like /complete or /backlog, NOT via PUT
 
-    // Find the task by ID AND ensure it belongs to the authenticated user
-    // Use findById to get the document first so Mongoose hooks (like pre('save')) work
-    let task = await Task.findOne({ _id: taskId, user: req.user });
+// 2️⃣ Get Tasks ±7 Days
+exports.getTasks = asyncHandler(async (req, res) => {
+    const { date } = req.query;
+    if (!date) throw new BadRequestError('Query “date” (YYYY-MM-DD) is required.');
+    const base = new Date(date);
+    base.setHours(0, 0, 0, 0);
+    const from = new Date(base); from.setDate(from.getDate() - 7);
+    const to = new Date(base); to.setDate(to.getDate() + 7);
 
-    if (!task) {
-        throw new NotFoundError(`Task not found with id ${taskId}`);
-    }
+    const tasks = await Task.find({
+        user: req.user._id,
+        scheduledDate: { $gte: from, $lte: to }
+    }).sort({ scheduledDate: 1, startTime: 1 }).lean();
 
-    // --- Apply Updates for Allowed Fields ---
-    // Update only the fields that were provided in the request body and are allowed
-    if (name !== undefined) task.name = name;
-    if (description !== undefined) task.description = description;
-    if (priority !== undefined) task.priority = priority;
-    if (startTime !== undefined) task.startTime = startTime;
-    if (endTime !== undefined) task.endTime = endTime;
-    if (motivationText !== undefined) task.motivationText = motivationText;
-    if (rewardInfo !== undefined) task.rewardInfo = rewardInfo;
-    if (repeatRule !== undefined) task.repeatRule = repeatRule;
-    if (voicePreference !== undefined) task.voicePreference = voicePreference;
-
-    // status and completedAt should ONLY be updated via /complete or /backlog endpoints
-    // isComplete is replaced by status
-
-
-    // Save the updated task
-    const updatedTask = await task.save(); // Mongoose timestamps will update `updatedAt`
-
-    res.status(200).json({
-        task: updatedTask,
-        message: 'Task updated successfully.'
-    });
+    res.json({ tasks });
 });
 
-// @desc    Delete a task by ID for the logged-in user
-// @route   DELETE /api/tasks/:id
-// @access  Private
-const deleteTask = asyncHandler(async (req, res) => {
-    const taskId = req.params.id;
-
-    // Find and delete the task by ID AND ensure it belongs to the authenticated user
-    // findOneAndDelete is efficient and still allows checking if the document existed
-    const task = await Task.findOneAndDelete({ _id: taskId, user: req.user });
-
-    if (!task) {
-        throw new NotFoundError(`Task not found with id ${taskId}`);
-    }
-
-    res.status(200).json({
-        message: 'Task removed successfully.'
-    });
+// 3️⃣ Get Single Task
+exports.getTaskById = asyncHandler(async (req, res) => {
+    const task = await Task.findOne({ _id: req.params.id, user: req.user._id });
+    if (!task) throw new NotFoundError('Task not found.');
+    res.json({ task });
 });
 
-// --- Specific Task Status Update Endpoints ---
+// 4️⃣ Update Task
+exports.updateTask = asyncHandler(async (req, res) => {
+    const allowed = [
+        'title', 'description', 'priority', 'scheduledDate', 'startTime', 'endTime',
+        'motivationText', 'rewardInfo', 'reminder', 'repeat'
+    ];
+    const updates = {};
+    for (let key of allowed) {
+        if (req.body[key] !== undefined) updates[key] = req.body[key];
+    }
+    const task = await Task.findOneAndUpdate(
+        { _id: req.params.id, user: req.user._id },
+        { $set: updates },
+        { new: true, runValidators: true }
+    );
+    if (!task) throw new NotFoundError('Task not found.');
+    res.json({ task });
+});
 
-// @desc    Mark a task as completed
-// @route   POST /api/tasks/:id/complete
-// @access  Private
-const completeTask = asyncHandler(async (req, res) => {
-    const taskId = req.params.id;
-    // Optional: Get feedback or completion time from body if needed for logging
-    // const { actualCompletionTime } = req.body;
+// 5️⃣ Delete Task
+exports.deleteTask = asyncHandler(async (req, res) => {
+    const task = await Task.findOneAndDelete({ _id: req.params.id, user: req.user._id });
+    if (!task) throw new NotFoundError('Task not found.');
+    res.json({ message: 'Task deleted.' });
+});
 
-    // Find the task by ID and ensure it belongs to the user
-    let task = await Task.findOne({ _id: taskId, user: req.user });
+// 6️⃣ Extend Task (increment, deadline, stopwatch)
+exports.extendTask = asyncHandler(async (req, res) => {
+    const { extensionType, value, userNotes } = req.body;
+    const task = await Task.findOne({ _id: req.params.id, user: req.user._id });
+    if (!task) throw new NotFoundError('Task not found.');
+    if (task.status !== 'active') throw new BadRequestError('Only active tasks can be extended.');
 
-    if (!task) {
-        throw new NotFoundError(`Task not found with id ${taskId}`);
+    const now = new Date();
+    let event = { timestamp: now, details: { userNotes } };
+
+    if (extensionType === 'stopwatch_start') {
+        // Start stopwatch session
+        event.type = 'delay_stopwatch_start';
+        task.delaySessionStart = now;
+
+    } else {
+        const currEnd = combineDateAndTime(task.scheduledDate, task.endTime);
+        if (!currEnd) throw new BadRequestError('Task has no end time to extend.');
+
+        let newEnd;
+        if (extensionType === 'increment') {
+            newEnd = new Date(currEnd.getTime() + value * 60e3);
+            event.type = 'delay_increment';
+            event.details.incrementMinutes = value;
+
+        } else if (extensionType === 'deadline') {
+            newEnd = new Date(value);
+            if (newEnd <= currEnd) throw new BadRequestError('New deadline must be after current.');
+            event.type = 'delay_deadline';
+            event.details.newDeadline = newEnd;
+
+        } else {
+            throw new BadRequestError('Invalid extension type.');
+        }
+
+        const delay = newEnd - currEnd;
+        task.totalDelayMs = (task.totalDelayMs || 0) + delay;
+
+        task.scheduledDate = newEnd;
+        task.endTime = newEnd.toTimeString().slice(0, 5);
+        task.extensionCount += 1;
+
+        event.details.oldEndTime = currEnd;
+        event.details.newEndTime = newEnd;
+        event.details.delayMs = delay;
     }
 
-    // Prevent completing a task that's already completed or in backlog
-    if (task.status === 'completed' || task.status === 'backlog') {
-        throw new BadRequestError(`Task is already in status: ${task.status}. Cannot mark as complete.`);
+    task.eventLog.push(event);
+    await task.save();
+    res.json({ task });
+});
+
+// 7️⃣ Complete Task (on_time or with_extension)
+exports.completeTask = asyncHandler(async (req, res) => {
+    const { userNotes } = req.body;
+    const task = await Task.findOne({ _id: req.params.id, user: req.user._id });
+    if (!task) throw new NotFoundError('Task not found.');
+    if (task.status !== 'active') throw new BadRequestError('Only active tasks can be completed.');
+
+    const now = new Date();
+    const plannedEnd = combineDateAndTime(task.scheduledDate, task.endTime);
+    const BUFFER_MS = 5 * 60 * 1000; // 5-minute grace
+
+    // If stopwatch session was running
+    if (task.delaySessionStart) {
+        const stopwatchDelay = now - plannedEnd;
+        task.totalDelayMs = (task.totalDelayMs || 0) + Math.max(0, stopwatchDelay);
+        delete task.delaySessionStart;
     }
 
-    // Update status and completion timestamp
+    // Determine if task is considered on-time
+    let isOnTime = true;
+    if (plannedEnd && now > plannedEnd.getTime() + BUFFER_MS) {
+        isOnTime = false;
+    }
+    if ((task.totalDelayMs || 0) > 0) {
+        isOnTime = false;
+    }
+
+    const method = isOnTime ? 'completed_on_time' : 'completed_with_extension';
+
+    task.earnedPoints = calculatePoints(task, now);
+    task.rewardUnlocked = task.earnedPoints > 0;
+    task.streak = isOnTime ? task.streak + 1 : 0;
+
     task.status = 'completed';
-    task.completedAt = new Date(); // Set completion time
-    task.rewardUnlocked = true; // Assuming reward unlocks on successful completion
-    // You could add logic here to compare completedAt to endTime for 'on time' rewards
+    task.completedAt = now;
 
-    // Save the updated task
-    const updatedTask = await task.save(); // Mongoose timestamps will update `updatedAt`
-
-    res.status(200).json({
-        task: updatedTask,
-        message: 'Task marked as completed.'
+    task.eventLog.push({
+        type: method,
+        timestamp: now,
+        details: { userNotes, totalDelayMs: task.totalDelayMs || 0 }
     });
+
+    await task.save();
+    res.json({ task, message: isOnTime ? 'Task completed on time.' : 'Task completed with extension.' });
 });
 
-// @desc    Move a task to the backlog
-// @route   POST /api/tasks/:id/backlog
-// @access  Private
-const backlogTask = asyncHandler(async (req, res) => {
-    const taskId = req.params.id;
-
-    // Find the task by ID and ensure it belongs to the user
-    let task = await Task.findOne({ _id: taskId, user: req.user });
-
-    if (!task) {
-        throw new NotFoundError(`Task not found with id ${taskId}`);
-    }
-
-    // Prevent moving a task that's already completed or already in backlog
-    if (task.status === 'completed' || task.status === 'backlog') {
-        throw new BadRequestError(`Task is already in status: ${task.status}. Cannot move to backlog.`);
-    }
-
-
-    // Update status
-    task.status = 'backlog';
-    task.completedAt = undefined; // Clear completion time if it somehow had one
-    task.rewardUnlocked = false; // Rewards typically not unlocked from backlog
-
-    // Save the updated task
-    const updatedTask = await task.save(); // Mongoose timestamps will update `updatedAt`
-
-    res.status(200).json({
-        task: updatedTask,
-        message: 'Task moved to backlog.'
-    });
+// 8️⃣ Backlog Task
+exports.backlogTask = asyncHandler(async (req, res) => {
+    const { userNotes } = req.body;
+    const task = await Task.findOneAndUpdate(
+        { _id: req.params.id, user: req.user._id, status: 'active' },
+        {
+            status: 'backlog',
+            earnedPoints: 0,
+            rewardUnlocked: false,
+            streak: 0,
+            $push: { eventLog: { type: 'backlogged', timestamp: new Date(), details: { userNotes } } }
+        },
+        { new: true }
+    );
+    if (!task) throw new NotFoundError('Active task not found.');
+    res.json({ task });
 });
 
-// @desc    Reactivate a task from completed or backlog
-// @route   POST /api/tasks/:id/reactivate
-// @access  Private
-const reactivateTask = asyncHandler(async (req, res) => {
-    const taskId = req.params.id;
-
-    let task = await Task.findOne({ _id: taskId, user: req.user });
-
-    if (!task) {
-        throw new NotFoundError(`Task not found with id ${taskId}`);
-    }
-
-    // Only reactivate if it's completed or in backlog
-    if (task.status === 'active') {
-        throw new BadRequestError(`Task is already active.`);
-    }
-
-    // Update status
-    task.status = 'active';
-    task.completedAt = undefined; // Clear completion time
-    task.rewardUnlocked = false; // Reward is no longer unlocked
-
-    // Save the updated task
-    const reactivatedTask = await task.save();
-
-    res.status(200).json({
-        task: reactivatedTask,
-        message: 'Task reactivated.'
-    });
+// 9️⃣ Reactivate Task
+exports.reactivateTask = asyncHandler(async (req, res) => {
+    const task = await Task.findOneAndUpdate(
+        { _id: req.params.id, user: req.user._id, status: { $ne: 'active' } },
+        {
+            status: 'active',
+            completedAt: undefined,
+            earnedPoints: 0,
+            rewardUnlocked: false,
+            $push: { eventLog: { type: 'reactivated', timestamp: new Date() } }
+        },
+        { new: true }
+    );
+    if (!task) throw new NotFoundError('Inactive task not found.');
+    res.json({ task });
 });
 
+// 🔟 Get Task Stats
+exports.getTaskStats = asyncHandler(async (req, res) => {
+    const period = req.query.period || 'week';
+    const start = new Date();
+    if (period === 'week') start.setDate(start.getDate() - 7);
+    if (period === 'month') start.setMonth(start.getMonth() - 1);
+    else if (period === 'all') start.setTime(0);
 
-// Export the controller functions
-module.exports = {
-    getTasks,
-    getTaskById,
-    createTask,
-    updateTask,
-    deleteTask,
-    completeTask,
-    backlogTask,
-    reactivateTask, // Added reactivate based on common flow
-};
+    const userId = mongoose.Types.ObjectId(req.user._id);
+
+    const summary = await Task.aggregate([
+        { $match: { user: userId, createdAt: { $gte: start } } },
+        {
+            $group: {
+                _id: '$status',
+                count: { $sum: 1 },
+                totalPoints: { $sum: '$earnedPoints' },
+                avgPoints: { $avg: '$earnedPoints' }
+            }
+        },
+        { $project: { _id: 0, status: '$_id', count: 1, totalPoints: 1, avgPoints: 1 } }
+    ]);
+
+    const comp = await Task.aggregate([
+        { $match: { user: userId, status: 'completed', createdAt: { $gte: start } } },
+        { $unwind: '$eventLog' },
+        { $match: { 'eventLog.type': { $in: ['completed_on_time', 'completed_with_extension'] } } },
+        { $group: { _id: '$eventLog.type', count: { $sum: 1 } } }
+    ]);
+
+    res.json({ summary, completionBreakdown: comp });
+});
+

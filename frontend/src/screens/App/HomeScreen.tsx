@@ -1,120 +1,140 @@
-import React, { useState } from 'react';
-import { View, Text, FlatList } from 'react-native';
-// import { useAuth } from '../../context/AuthContext'; // Import your auth hook (typed)
-import CalendarStrip from '@/src/components/CalenderStrip';
-import { commonStyles } from '@/src/assets/styles/common.styles';
-import TabSwitcher from '@/src/components/TabSwitcher';
-// import SwipeTabs from '@/src/components/SwipeTabs';
+import React, { useEffect, useState, useMemo } from 'react';
+import {
+    View,
+    Text,
+    FlatList,
+    ActivityIndicator,
+    StyleSheet,
+    Alert,
+} from 'react-native';
 import moment from 'moment';
+import { useTaskStore } from '@/src/store/taskStore';
+import { useAuth } from '@/src/context/AuthContext';
+import CalendarStrip from '@/src/components/CalenderStrip';
+import TabSwitcher from '@/src/components/TabSwitcher';
 import TaskCard from '@/src/components/TaskCard';
-import { Task } from '@/src/types/task';
+import { COLORS } from '@/src/constants/colors';
 
+const HomeScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
+    const { user } = useAuth();
 
-const sampleTask: Task[] = [{
-    id: '1',
-    title: 'Design Profile UI',
-    description: 'Implement profile layout with calendar & tasks.',
-    priority: 'High',
-    startTime: '2025-07-07T12:51:00',
-    endTime: '2025-07-07T12:59:00',
-    streak: 0,
-    reward: "awesome",
-    points: 10,
-    status: 'Active',
-}, {
-    id: '2',
-    title: 'Design Profile UI',
-    description: 'Implement profile layout with calendar & tasks.',
-    priority: 'High',
-    startTime: '2025-07-07T21:00:00',
-    endTime: '2025-07-07T21:30:00',
-    streak: 0,
-    reward: "awesome",
-    points: 10,
-    status: 'Active',
-}];
-const HomeScreen: React.FC = () => {
-    // Get user and logout function (typed by useAuth hook)
-    // const { logout } = useAuth();
-    const [taskList, setTaskList] = useState<Task[]>([
-        {
-            id: '1',
-            title: 'Design Profile UI',
-            description: 'Implement profile layout with calendar & tasks.',
-            priority: 'High',
-            startTime: '2025-07-07T21:51:00',
-            endTime: '2025-07-07T21:59:00',
-            streak: 0,
-            reward: 'awesome',
-            points: 10,
-            status: 'Active',
-        },
-        {
-            id: '2',
-            title: 'Review Calendar Logic',
-            description: 'Fix end-time  alert issue',
-            priority: 'Medium',
-            startTime: '2025-07-07T21:00:00',
-            endTime: '2025-07-07T21:30:00',
-            streak: 1,
-            reward: 'coffee',
-            points: 5,
-            status: 'Completed',
-        },
-    ]);
+    const {
+        tasks,
+        isLoading,
+        selectedDate,
+        selectDate,
+        fetchTasks,
+        deleteTask,
+        completeTask,
+        backlogTask,
+    } = useTaskStore();
 
-    const [selectedTab, setSelectedTab] = useState('Active');
-    const [selectedDate, setSelectedDate] = useState(moment().format('YYYY-MM-DD'));
-    const handleStatusChange = (taskId: string, newStatus: 'Active' | 'Completed' | 'Backlog' | 'Extended') => {
-        setSelectedTab(newStatus);
-        // Handle status change logic here, e.g., update task in state or make API call
-        console.log(`Task ${taskId} status changed to ${newStatus}`);
-    }
-    const filteredTasks = taskList.filter((task) => {
-        const taskDate = moment(task.startTime).format('YYYY-MM-DD');
-        return task.status === selectedTab && taskDate === selectedDate;
-    });
+    const [selectedTab, setSelectedTab] = useState<'Active' | 'Completed' | 'Backlog'>('Active');
+
+    // ✅ Fetch tasks whenever date or user changes
+    useEffect(() => {
+        if (user) {
+            fetchTasks();
+        }
+    }, [user, selectedDate]);
+
+    // ✅ Filter tasks for selected date & tab
+    const filteredTasks = useMemo(() => {
+        const selectedDay = selectedDate.format('YYYY-MM-DD');
+        return tasks.filter(task =>
+            task.status?.toLowerCase() === selectedTab.toLowerCase() &&
+            moment(task.scheduledDate).format('YYYY-MM-DD') === selectedDay
+        );
+    }, [tasks, selectedDate, selectedTab]);
+
+    // ✅ Confirm before marking completed/backlog
+    const handleStatusChange = (taskId: string, newStatus: 'active' | 'completed' | 'backlog') => {
+        if (newStatus === 'completed') {
+            Alert.alert('Mark Task Completed', 'Are you sure?', [
+                { text: 'Cancel', style: 'cancel' },
+                {
+                    text: 'Yes',
+                    onPress: async () => {
+                        await completeTask(taskId);
+                        setSelectedTab('Completed');
+                    },
+                },
+            ]);
+        } else if (newStatus === 'backlog') {
+            Alert.alert('Move to Backlog?', 'This task will be postponed.', [
+                { text: 'Cancel', style: 'cancel' },
+                {
+                    text: 'Yes',
+                    onPress: async () => {
+                        await backlogTask(taskId);
+                        setSelectedTab('Backlog');
+                    },
+                },
+            ]);
+        }
+    };
 
     return (
-        <View style={commonStyles.container}>
-            <CalendarStrip selectedDate={selectedDate} onSelectDate={setSelectedDate} />
-            < TabSwitcher selectedTab={selectedTab} onTabChange={setSelectedTab} />
-            <Text style={commonStyles.subtitle}>{selectedDate} {selectedTab}</Text>
-            {/* <SwipeTabs /> */}
-            {/* Add tasks or agenda under here */}
-            <FlatList
-                data={filteredTasks}
-                keyExtractor={(item) => item.id}
-                renderItem={({ item }) => (
-                    <TaskCard
-                        task={item}
-                        onStatusChange={(taskId, newStatus) => {
-                            setTaskList((prev) =>
-                                prev.map((t) =>
-                                    t.id === taskId ? { ...t, status: newStatus } : t
-                                )
-                            );
-                            setSelectedTab(newStatus); // optionally switch to new tab
-                        }}
-                        onAddPoints={(points) => console.log(`Rewarded with ${points} points`)}
-                        onEditTask={(id) => console.log(`Edit Task: ${id}`)}
-                        onDeleteTask={(id) => {
-                            setTaskList((prev) => prev.filter((t) => t.id !== id));
-                            console.log(`Deleted Task: ${id}`);
-                        }}
-                    />
-                )}
-                contentContainerStyle={{ padding: 16 }}
-                ListEmptyComponent={
-                    <Text style={{ textAlign: 'center', marginTop: 40 }}>
-                        No tasks found for this date and status.
-                    </Text>
-                }
-            />
+        <View style={styles.container}>
+            <CalendarStrip selectedDate={selectedDate} onSelectDate={(date) => selectDate(moment(date))} />
+            <TabSwitcher selectedTab={selectedTab} onTabChange={setSelectedTab} />
 
-            {/* <PrimaryButton title="Logout" onPress={logout} buttonStyle={{ marginTop: spacing.lg }} > Logout </PrimaryButton> */}
+            <Text style={styles.subtitle}>
+                {moment(selectedDate).format("MMMM D, YYYY")} - {selectedTab}
+            </Text>
+
+            {isLoading && filteredTasks.length === 0 ? (
+                <ActivityIndicator size="large" style={{ marginTop: 40 }} />
+            ) : (
+                <FlatList
+                    data={filteredTasks}
+                    keyExtractor={(item, index) => item._id ?? index.toString()}
+                    renderItem={({ item }) => (
+                        <TaskCard
+                            task={item}
+                            onStatusChange={handleStatusChange}
+                            onAddPoints={(points) => console.log(`+${points} points earned`)}
+                            onEditTask={(id) => navigation.navigate('AddTaskScreen', { taskId: id })}
+                            onDeleteTask={(id) => deleteTask(id)}
+                        />
+                    )}
+                    contentContainerStyle={{ padding: 16 }}
+                    ListEmptyComponent={
+                        <View style={styles.emptyContainer}>
+                            <Text style={styles.emptyText}>
+                                🎉 Youre all clear! No tasks in this section.
+                            </Text>
+                        </View>
+                    }
+                />
+            )}
         </View>
     );
 };
+
+const styles = StyleSheet.create({
+    container: {
+        flex: 1,
+        backgroundColor: COLORS.background,
+    },
+    subtitle: {
+        fontSize: 16,
+        fontWeight: '500',
+        color: '#555',
+        marginLeft: 16,
+        marginBottom: 6,
+    },
+    emptyContainer: {
+        flex: 1,
+        justifyContent: 'center',
+        alignItems: 'center',
+        paddingTop: 50,
+    },
+    emptyText: {
+        fontSize: 15,
+        color: '#888',
+        textAlign: 'center',
+    },
+});
 
 export default HomeScreen;

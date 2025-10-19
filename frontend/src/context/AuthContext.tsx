@@ -1,62 +1,50 @@
-import React, { createContext, useState, useContext, useEffect, ReactNode } from 'react'; // Import ReactNode type
+import React, { createContext, useState, useContext, useEffect, ReactNode } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { registerUser, loginUser } from '../services/authService';
-// import LoadingSpinner from '../components/LoadingSpinner';
+import { useTaskStore } from '../store/taskStore';
+import { authEvents } from '../services';
 
-// --- Define Types ---
-
-// Type for the user data stored in state and storage
 interface UserData {
   id: string;
   email: string;
   username?: string;
-  points?: number; 
+  points?: number;
 }
 
-// Type for the value provided by the AuthContext
 interface AuthContextValue {
-  user: UserData | null; // User is either UserData object or null
-  token: string | null; // Token is string or null
+  user: UserData | null;
+  token: string | null;
   isLoading: boolean;
-  login: (email: string, password: string) => Promise<void>; // Login function returns a Promise that resolves to void
-  register: (email: string, password: string, username: string) => Promise<void>; // Register function returns a Promise that resolves to void
-  logout: () => Promise<void>; // Logout function returns a Promise that resolves to void
+  login: (email: string, password: string) => Promise<void>;
+  register: (email: string, password: string, username: string) => Promise<void>;
+  logout: () => Promise<void>;
 }
 
-// Create the Auth Context with an initial undefined value (will be set by provider)
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
-// Define props for the AuthProvider
 interface AuthProviderProps {
-  children: ReactNode; // children prop type
+  children: ReactNode;
 }
 
-// Create a provider component to wrap your app
 export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
-  const [user, setUser] = useState<UserData | null>(null); // Specify state type
-  const [token, setToken] = useState<string | null>(null); // Specify state type
-  const [isLoading, setIsLoading] = useState<boolean>(true); // Specify state type
+  const [user, setUser] = useState<UserData | null>(null);
+  const [token, setToken] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState<boolean>(true);
+  const { syncOfflineTasks } = useTaskStore.getState();
 
-  // --- Function to check for token/user on app start ---
   useEffect(() => {
     const loadAuthData = async () => {
       try {
         const storedToken = await AsyncStorage.getItem('token');
-        const storedUserJson = await AsyncStorage.getItem('user'); // Get as string
-
+        const storedUserJson = await AsyncStorage.getItem('user');
         if (storedToken && storedUserJson) {
-          // Parse the stored JSON string back to object and cast it to UserData type
           const storedUser: UserData = JSON.parse(storedUserJson);
           setToken(storedToken);
           setUser(storedUser);
-          // In a real app, you might want to verify the token with the backend here
         }
       } catch (error) {
-        console.error('Error loading auth data from storage:', error);
-        // Optional: Clear storage if load fails to prevent loop
+        console.error('Error loading auth data:', error);
         await AsyncStorage.multiRemove(['token', 'user']);
-        setUser(null);
-        setToken(null);
       } finally {
         setIsLoading(false);
       }
@@ -65,54 +53,19 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     loadAuthData();
   }, []);
 
-  // --- Login Function ---
-  // Mark function as async and specify return type Promise<void>
   const handleLogin = async (email: string, password: string): Promise<void> => {
     setIsLoading(true);
     try {
-      // Call your backend login API, response is typed by api/index.ts
       const data = await loginUser(email, password);
-
-      // Store token and user info (using specific types)
-      await AsyncStorage.setItem('token', data.token);
-      await AsyncStorage.setItem('user', JSON.stringify(data.user)); // Store user object as JSON string
-
-      // Update state
-      setToken(data.token);
-      setUser(data.user);
-
-    } catch (error: any) { // Catch error (typed as any for now, refine later)
-      console.error('Login failed in context:', error.message);
-      // Clear any partial storage if login failed after attempting API call
-      await AsyncStorage.multiRemove(['token', 'user']);
-      setToken(null);
-      setUser(null);
-      // Re-throw the error to be caught and displayed in the component
-      throw error; // Throw the error caught from the API call
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  // --- Register Function ---
-  // Mark function as async and specify return type Promise<void>
-  const handleRegister = async (email: string, password: string, username: string): Promise<void> => {
-    setIsLoading(true);
-    try {
-      // Call your backend register API
-      const data = await registerUser(email, password, username);
-
-      // Store token and user info (optional - decide if auto-login after register)
       await AsyncStorage.setItem('token', data.token);
       await AsyncStorage.setItem('user', JSON.stringify(data.user));
-
-      // Update state
       setToken(data.token);
       setUser(data.user);
 
+      // ✅ Trigger offline sync for this user
+      await syncOffline();
 
     } catch (error: any) {
-      console.error('Registration failed in context:', error.message);
       await AsyncStorage.multiRemove(['token', 'user']);
       setToken(null);
       setUser(null);
@@ -122,53 +75,67 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     }
   };
 
-  // --- Logout Function ---
-  // Mark function as async and specify return type Promise<void>
+  const handleRegister = async (email: string, password: string, username: string): Promise<void> => {
+    setIsLoading(true);
+    try {
+      const data = await registerUser(email, password, username);
+      await AsyncStorage.setItem('token', data.token);
+      await AsyncStorage.setItem('user', JSON.stringify(data.user));
+      setToken(data.token);
+      setUser(data.user);
+
+      // ✅ Trigger offline sync for this user
+      await syncOffline();
+
+    } catch (error: any) {
+      await AsyncStorage.multiRemove(['token', 'user']);
+      setToken(null);
+      setUser(null);
+      throw error;
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const handleLogout = async (): Promise<void> => {
     setIsLoading(true);
     try {
-      // Clear storage
-      await AsyncStorage.removeItem('token');
-      await AsyncStorage.removeItem('user');
-
-      // Clear state
+      await AsyncStorage.multiRemove(['token', 'user']);
       setToken(null);
       setUser(null);
-
     } catch (error) {
       console.error('Logout failed:', error);
     } finally {
       setIsLoading(false);
     }
   };
+  // --- EFFECT TO LISTEN FOR GLOBAL LOGOUT EVENT ---
+  useEffect(() => {
+    // Define the listener function
+    const onLogout = () => {
+      console.log("AuthContext received logout event from API service.");
+      handleLogout();
+    };
 
-  // --- Context Value ---
-  // Explicitly define the type of the value object being provided
-  const value: AuthContextValue = {
-    user,
-    token,
-    isLoading,
-    login: handleLogin,
-    register: handleRegister,
-    logout: handleLogout,
-  };
+    // Add the listener
+    authEvents.addListener('logout', onLogout);
+
+    // IMPORTANT: Return a cleanup function to remove the listener when the component unmounts
+    return () => {
+      authEvents.removeListener('logout', onLogout);
+    };
+  }, []); // Empty dependency array ensures this runs only once
 
   return (
-    // Provide the typed value
-    <AuthContext.Provider value={value}>
-      {/* Show a loading indicator while isLoading is true */}
-        {children}
+    <AuthContext.Provider value={{ user, token, isLoading, login: handleLogin, register: handleRegister, logout: handleLogout }}>
+      {children}
     </AuthContext.Provider>
   );
 };
 
-// Hook to easily access the Auth Context value
-// Add return type annotation
 export const useAuth = (): AuthContextValue => {
-  // Use useContext with the explicit context type
   const context = useContext(AuthContext);
   if (context === undefined) {
-    // Ensure the hook is used within the provider
     throw new Error('useAuth must be used within an AuthProvider');
   }
   return context;
